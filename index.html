@@ -109,8 +109,8 @@ h2{font-size:24px;margin:22px 0 8px}
 .intro h2{margin:6px 0}
 .prompt{background:#fff;border:3px solid var(--ink);border-radius:20px;padding:12px 14px;font-size:18px;box-shadow:0 4px 0 var(--ink);margin-bottom:12px;text-align:center}
 .prompt small{display:block;margin-top:2px}
-.canvasWrap{position:relative}
-#cv{width:100%;aspect-ratio:1;display:block;background:#fff;border:3px solid var(--ink);border-radius:22px;box-shadow:0 6px 0 var(--ink);touch-action:none}
+.canvasWrap{position:relative;touch-action:none;-webkit-touch-callout:none}
+#cv{width:100%;aspect-ratio:1;display:block;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-user-drag:none;background:#fff;border:3px solid var(--ink);border-radius:22px;box-shadow:0 6px 0 var(--ink);touch-action:none}
 .hint{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--disp);font-size:24px;color:rgba(37,33,58,.35);pointer-events:none;text-align:center}
 .rate{position:absolute;inset:0;background:rgba(255,248,238,.94);border-radius:22px;display:flex;flex-direction:column;justify-content:center;padding:16px;text-align:center}
 .rate .btn{margin:6px 0}
@@ -311,10 +311,21 @@ CH.draw.mount=function(box,ctx){
       ctx.done({score,detail:`<img alt="Your drawing" src="${cv.toDataURL('image/png')}"><p>Line time <b>${dur.toFixed(1)}s</b> · self-rated · ${esc(p)}</p><p><small>Score = line time + ink + your honest rating.</small></p>`});
     });
   }
-  ctx.on(cv,'pointerdown',e=>{if(ended||drawing)return;e.preventDefault();try{cv.setPointerCapture(e.pointerId)}catch(_){}drawing=true;last=pos(e);t0=performance.now();$('#hint',box).classList.add('hidden');ctx.timer(10,()=>end('time'));c.beginPath();c.moveTo(last.x,last.y);c.lineTo(last.x+.1,last.y+.1);c.stroke()});
-  ctx.on(cv,'pointermove',e=>{if(!drawing)return;e.preventDefault();const q=pos(e);len+=Math.hypot(q.x-last.x,q.y-last.y);c.beginPath();c.moveTo(last.x,last.y);c.lineTo(q.x,q.y);c.stroke();last=q});
-  ctx.on(cv,'pointerup',()=>{if(drawing)end('lift')});
-  ctx.on(cv,'pointercancel',()=>{if(drawing)end('lift')});
+  function begin(q){if(ended||drawing)return;drawing=true;last=q;t0=performance.now();$('#hint',box).classList.add('hidden');ctx.timer(10,()=>end('time'));c.beginPath();c.moveTo(q.x,q.y);c.lineTo(q.x+.1,q.y+.1);c.stroke()}
+  function move(q){if(!drawing)return;len+=Math.hypot(q.x-last.x,q.y-last.y);c.beginPath();c.moveTo(last.x,last.y);c.lineTo(q.x,q.y);c.stroke();last=q}
+  /* mouse + stylus via pointer events (touch is handled separately below) */
+  ctx.on(cv,'pointerdown',e=>{if(e.pointerType==='touch')return;e.preventDefault();try{cv.setPointerCapture(e.pointerId)}catch(_){}begin(pos(e))});
+  ctx.on(cv,'pointermove',e=>{if(e.pointerType==='touch'||!drawing)return;e.preventDefault();move(pos(e))});
+  ctx.on(cv,'pointerup',e=>{if(e.pointerType!=='touch'&&drawing)end('lift')});
+  ctx.on(cv,'pointercancel',e=>{if(e.pointerType!=='touch'&&drawing)end('lift')});
+  /* fingers via touch events: reliable on iOS Safari and Android, and blocks page scroll while drawing */
+  let tid=null;
+  const tpos=t=>{const r=cv.getBoundingClientRect();return{x:(t.clientX-r.left)*cv.width/r.width,y:(t.clientY-r.top)*cv.height/r.height}};
+  ctx.on(cv,'touchstart',e=>{e.preventDefault();if(drawing||ended)return;const t=e.changedTouches[0];tid=t.identifier;begin(tpos(t))},{passive:false});
+  ctx.on(cv,'touchmove',e=>{e.preventDefault();if(!drawing||tid===null)return;for(const t of e.changedTouches)if(t.identifier===tid)move(tpos(t))},{passive:false});
+  const tend=e=>{e.preventDefault();if(!drawing||tid===null)return;for(const t of e.changedTouches)if(t.identifier===tid){tid=null;end('lift')}};
+  ctx.on(cv,'touchend',tend,{passive:false});ctx.on(cv,'touchcancel',tend,{passive:false});
+  ctx.on(cv,'contextmenu',e=>e.preventDefault());
 };
 
 function textChallenge(box,ctx,o){
